@@ -1,0 +1,113 @@
+---
+- hosts: host_tst
+  become: yes
+  vars:
+    registry: "url-registry"
+    registry_user: "alan-devops"
+    registry_password: "sha256"
+    imagen_back: "api:v1.5.2.1-dev"
+    imagen_front: "front:v1.9.1-dev"
+
+  tasks:
+    - name: Instalar paquete python3-pip
+      become: yes
+      apt:
+        name: python3-pip
+        update_cache: yes
+
+    - name: Instalar módulo Docker para Python3
+      become: yes
+      pip:
+        name: docker
+
+    - name: Crear carpeta para los env.
+      file:
+        path: "/home/ubuntu/env"
+        state: directory
+        mode: "0755"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: yes
+
+    - name: Crear archivo .env.back
+      copy:
+        content: "<contenido_del_archivo_env_back>"
+        dest: "/home/ubuntu/env/.env.back"
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: yes
+
+    - name: Crear archivo .env.front
+      copy:
+        content: "<contenido_del_archivo_env_front>"
+        dest: "/home/ubuntu/env/.env.front"
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+      become: yes
+
+      
+    - name: Descargar la imagen de Docker (backend)
+      docker_image:
+        name: "{{ registry }}/{{ imagen_back }}"
+        source: pull
+      register: api
+
+    - name: Verificar si se descargó la imagen de Docker (backend)
+      debug:
+        var: api
+
+    - name: Descargar la imagen de Docker (frontend)
+      docker_image:
+        name: "{{ registry }}/{{ imagen_front }}"
+        source: pull
+      register: front
+
+    - name: Verificar si los contenedores están en ejecución
+      docker_container_info:
+        name: "{{ item }}"
+      loop:
+        - api
+        - front
+      register: container_info
+
+    - name: Depurar variable container_info
+      debug:
+        var: container_info
+
+    - name: Detener y eliminar contenedor api existente
+      command: docker rm -f api
+
+      
+    - name: Iniciar api
+      docker_container:
+        name: api
+        image: "{{ registry }}/{{ imagen_back }}"
+        env_file: /home/ubuntu/env/.env.back
+        published_ports:
+          - "5600:3333"
+        detach: true
+      # when: container_info.results[0].state != "running"
+
+    - name: Detener y eliminar contenedor front existente
+      command: docker rm -f front
+
+    - name: Iniciar front
+      docker_container:
+        name: front
+        image: "{{ registry }}/{{ imagen_front }}"
+        env_file: /home/ubuntu/env/.env.front
+        published_ports:
+          - "80:80"
+        detach: true
+      # when: container_info.results[1].state != "running"
+
+    - name: Actualizar contenedores y configurar reinicio automático
+  docker_container:
+    name: "{{ item }}"
+    restart_policy: unless-stopped
+    update_restart: yes
+  loop:
+    - api
+    - front  
